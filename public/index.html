@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BC Container Manager</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="20" rx="2"/>
+                    <path d="M7 8h10M7 12h10M7 16h6"/>
+                </svg>
+                <h1>BC Container Manager</h1>
+            </div>
+            <button class="btn btn-primary" id="btnNewContainer">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                New Container
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Dashboard -->
+        <section id="dashboard">
+            <div class="section-header">
+                <h2>Containers</h2>
+                <button class="btn btn-ghost" id="btnRefreshAll">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
+                        <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+
+            <div id="containerList" class="container-grid">
+                <!-- Populated by JS -->
+            </div>
+
+            <div id="emptyState" class="empty-state">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                    <rect x="2" y="2" width="20" height="20" rx="2"/>
+                    <path d="M7 8h10M7 12h10M7 16h6"/>
+                </svg>
+                <h3>No containers yet</h3>
+                <p>Create your first Business Central container to get started.</p>
+                <button class="btn btn-primary" id="btnNewContainerEmpty">New Container</button>
+            </div>
+        </section>
+
+        <!-- New Container Wizard -->
+        <section id="wizard" class="hidden">
+            <div class="wizard-header">
+                <button class="btn btn-ghost" id="btnBackToDashboard">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                    Back
+                </button>
+                <h2>New Container</h2>
+            </div>
+
+            <div class="wizard-steps">
+                <div class="step active" data-step="1"><span class="step-num">1</span> Hosting</div>
+                <div class="step" data-step="2"><span class="step-num">2</span> BC Version</div>
+                <div class="step" data-step="3"><span class="step-num">3</span> Apps &amp; Files</div>
+                <div class="step" data-step="4"><span class="step-num">4</span> Review</div>
+            </div>
+
+            <!-- Step 1: Hosting -->
+            <div class="wizard-panel" id="step1">
+                <h3>Choose Hosting Type</h3>
+
+                <div class="card-select">
+                    <label class="card-option">
+                        <input type="radio" name="hosting" value="local" checked>
+                        <div class="card-body">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="4" y="4" width="16" height="16" rx="1"/>
+                                <path d="M4 9h16M9 4v16"/>
+                            </svg>
+                            <h4>Local Docker</h4>
+                            <p>Run BC container on your machine using Docker &amp; Hyper-V</p>
+                        </div>
+                    </label>
+                    <label class="card-option">
+                        <input type="radio" name="hosting" value="azure">
+                        <div class="card-body">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                            </svg>
+                            <h4>Azure Hosted</h4>
+                            <p>Deploy BC container to Azure Container Instances</p>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Local Prerequisites -->
+                <div id="localPrereqs" class="prereqs-panel">
+                    <div class="prereqs-header">
+                        <h4>Prerequisites Check</h4>
+                        <button class="btn btn-primary btn-sm hidden" id="btnInstallAllLocal" onclick="installAll('local')">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            Install All Missing
+                        </button>
+                    </div>
+                    <div class="prereq-list">
+                        <div class="prereq-item" id="prereqDocker">
+                            <span class="prereq-icon loading"></span>
+                            <div class="prereq-info">
+                                <strong>Docker Engine</strong>
+                                <small>Windows service for running containers</small>
+                            </div>
+                            <button class="btn btn-ghost btn-sm prereq-install hidden" onclick="installSingle('docker')">Install</button>
+                        </div>
+                        <div class="prereq-item" id="prereqHyperV">
+                            <span class="prereq-icon loading"></span>
+                            <div class="prereq-info">
+                                <strong>Hyper-V</strong>
+                                <small>Required for container isolation (needs Admin + reboot)</small>
+                            </div>
+                            <button class="btn btn-ghost btn-sm prereq-install hidden" onclick="installSingle('hyperv')">Install</button>
+                        </div>
+                        <div class="prereq-item" id="prereqBCHelper">
+                            <span class="prereq-icon loading"></span>
+                            <div class="prereq-info">
+                                <strong>BCContainerHelper</strong>
+                                <small>PowerShell module for BC container management</small>
+                            </div>
+                            <button class="btn btn-ghost btn-sm prereq-install hidden" onclick="installSingle('bcContainerHelper')">Install</button>
+                        </div>
+                    </div>
+                    <div id="installLog" class="install-log hidden"></div>
+                </div>
+
+                <!-- Azure Fields -->
+                <div id="azureFields" class="hidden">
+                    <!-- Azure Prerequisites -->
+                    <div class="prereqs-panel" id="azurePrereqs">
+                        <div class="prereqs-header">
+                            <h4>Azure Prerequisites</h4>
+                            <button class="btn btn-primary btn-sm hidden" id="btnInstallAllAzure" onclick="installAll('azure')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                Install All Missing
+                            </button>
+                        </div>
+                        <div class="prereq-list">
+                            <div class="prereq-item" id="prereqAzModule">
+                                <span class="prereq-icon loading"></span>
+                                <div class="prereq-info">
+                                    <strong>Az PowerShell Module</strong>
+                                    <small>Required to manage Azure resources</small>
+                                </div>
+                                <button class="btn btn-ghost btn-sm prereq-install hidden" onclick="installSingle('azModule')">Install</button>
+                            </div>
+                            <div class="prereq-item" id="prereqAzLogin">
+                                <span class="prereq-icon loading"></span>
+                                <div class="prereq-info">
+                                    <strong>Azure Login</strong>
+                                    <small id="azAccountInfo">Not logged in</small>
+                                </div>
+                                <button class="btn btn-ghost btn-sm prereq-install hidden" onclick="installSingle('azLogin')">Login</button>
+                            </div>
+                        </div>
+                        <div id="installLogAzure" class="install-log hidden"></div>
+                    </div>
+
+                    <h4>Azure Configuration</h4>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Azure Subscription ID</label>
+                            <input type="text" id="azureSubscription" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                        </div>
+                        <div class="form-group">
+                            <label>Resource Group</label>
+                            <input type="text" id="azureResourceGroup" placeholder="my-bc-containers-rg">
+                        </div>
+                        <div class="form-group">
+                            <label>Region</label>
+                            <select id="azureRegion">
+                                <option value="westeurope">West Europe</option>
+                                <option value="northeurope">North Europe</option>
+                                <option value="eastus">East US</option>
+                                <option value="westus2">West US 2</option>
+                                <option value="uksouth">UK South</option>
+                                <option value="germanywestcentral">Germany West Central</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>VM Size</label>
+                            <select id="azureVmSize">
+                                <option value="Standard_D2s_v3">Standard D2s v3 (2 vCPU, 8 GB)</option>
+                                <option value="Standard_D4s_v3">Standard D4s v3 (4 vCPU, 16 GB)</option>
+                                <option value="Standard_D8s_v3">Standard D8s v3 (8 vCPU, 32 GB)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Container Settings (common) -->
+                <h4>Container Settings</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Container Name</label>
+                        <input type="text" id="containerName" placeholder="e.g. BC — we verify if name is available" pattern="[a-zA-Z0-9]+" title="Only alphanumeric characters">
+                        <div id="nameWarning" class="name-warning hidden"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Authentication</label>
+                        <select id="authType">
+                            <option value="NavUserPassword">NAV User Password</option>
+                            <option value="UserPassword">User Password</option>
+                            <option value="Windows">Windows</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="adminUser" value="admin">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="text" id="adminPass" value="admin">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: BC Version -->
+            <div class="wizard-panel hidden" id="step2">
+                <h3>Business Central Version</h3>
+
+                <div class="card-select">
+                    <label class="card-option">
+                        <input type="radio" name="bcType" value="onprem" checked>
+                        <div class="card-body">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v3"/>
+                            </svg>
+                            <h4>OnPrem</h4>
+                            <p>On-premises BC artifacts, requires license file</p>
+                        </div>
+                    </label>
+                    <label class="card-option">
+                        <input type="radio" name="bcType" value="saas">
+                        <div class="card-body">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                            </svg>
+                            <h4>SaaS (Sandbox)</h4>
+                            <p>Sandbox artifacts, no license required</p>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Country</label>
+                        <select id="bcCountry">
+                            <option value="w1">World (W1)</option>
+                            <option value="at">Austria (AT)</option>
+                            <option value="dk">Denmark (DK)</option>
+                            <option value="fr">France (FR)</option>
+                            <option value="de">Germany (DE)</option>
+                            <option value="it">Italy (IT)</option>
+                            <option value="nl">Netherlands (NL)</option>
+                            <option value="rs">Serbia (RS)</option>
+                            <option value="es">Spain (ES)</option>
+                            <option value="ch">Switzerland (CH)</option>
+                            <option value="gb">United Kingdom (GB)</option>
+                            <option value="us">United States (US)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>BC Version</label>
+                        <div class="version-select-wrapper">
+                            <select id="bcVersion">
+                                <option value="">-- Select or type version --</option>
+                            </select>
+                            <button class="btn btn-ghost btn-sm" id="btnLoadVersions">Load Versions</button>
+                        </div>
+                        <input type="text" id="bcVersionManual" placeholder="Or type version manually, e.g. 27.1.0.0">
+                    </div>
+                </div>
+
+                <!-- License (OnPrem only) -->
+                <div id="licenseSection">
+                    <h4>License File</h4>
+                    <p class="hint">Upload your BC license (.bclicense or .flf file). Required for OnPrem installations.</p>
+                    <div class="file-upload-area" id="licenseUploadArea">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <p>Drag &amp; drop license file here or <strong>browse</strong></p>
+                        <input type="file" id="licenseFile" accept=".bclicense,.flf" class="file-input-hidden">
+                        <div id="licenseFileName" class="file-name"></div>
+                    </div>
+                </div>
+
+                <!-- Backup file (optional) -->
+                <h4>Database Backup <span class="optional">(optional)</span></h4>
+                <p class="hint">Upload a .bak file to restore a database into the container.</p>
+                <div class="file-upload-area" id="backupUploadArea">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag &amp; drop backup file here or <strong>browse</strong></p>
+                    <input type="file" id="backupFile" accept=".bak" class="file-input-hidden">
+                    <div id="backupFileName" class="file-name"></div>
+                </div>
+            </div>
+
+            <!-- Step 3: Apps -->
+            <div class="wizard-panel hidden" id="step3">
+                <h3>Additional Applications</h3>
+                <p class="hint">Upload .app files to publish and install on the container (e.g. LS Central, custom extensions).</p>
+
+                <div class="file-upload-area" id="appUploadArea">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag &amp; drop .app files here or <strong>browse</strong></p>
+                    <input type="file" id="appFiles" accept=".app" multiple class="file-input-hidden">
+                </div>
+
+                <div id="appFileList" class="file-list">
+                    <!-- Populated by JS -->
+                </div>
+
+                <div class="info-box" id="saasAppWarning" style="display:none;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <p>Note: Publishing apps on SaaS/Sandbox containers may have restrictions.
+                    Runtime packages and per-tenant extensions typically work fine.</p>
+                </div>
+            </div>
+
+            <!-- Step 4: Review -->
+            <div class="wizard-panel hidden" id="step4">
+                <h3>Review Configuration</h3>
+
+                <div class="review-card" id="reviewContent">
+                    <!-- Populated by JS -->
+                </div>
+
+                <div class="build-progress hidden" id="buildProgress">
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <div id="buildLog" class="build-log"></div>
+                </div>
+            </div>
+
+            <!-- Wizard Navigation -->
+            <div class="wizard-nav">
+                <button class="btn btn-ghost" id="btnPrev" disabled>Previous</button>
+                <button class="btn btn-primary" id="btnNext">Next</button>
+                <button class="btn btn-success hidden" id="btnBuild">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    Build Container
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>

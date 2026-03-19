@@ -1,0 +1,19 @@
+{
+  "name": "bc-container-manager",
+  "version": "1.0.0",
+  "description": "Web UI for managing Business Central containers (local Docker & Azure)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["business-central", "bc", "container", "docker"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "uuid": "^13.0.0"
+  }
+}
