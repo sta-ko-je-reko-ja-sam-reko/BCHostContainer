@@ -320,6 +320,28 @@
                     <input type="file" id="backupFile" accept=".bak" class="file-input-hidden">
                     <div id="backupFileName" class="file-name"></div>
                 </div>
+
+                <!-- Clean up users after backup restore -->
+                <div id="cleanupUsersSection" class="hidden">
+                    <div class="cleanup-option">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cleanupUsers">
+                            <span>Clean up user tables after restore</span>
+                        </label>
+                        <p class="hint">Removes existing users from the restored database so you can log in with the credentials above.</p>
+                        <button class="btn btn-ghost btn-sm" id="btnToggleSqlPreview" type="button">Show SQL</button>
+                    </div>
+                    <div id="sqlPreview" class="sql-preview hidden">
+                        <textarea id="cleanupSql" class="sql-editor" spellcheck="false">DELETE FROM [dbo].[User]
+DELETE FROM [dbo].[Access Control]
+DELETE FROM [dbo].[User Property]
+DELETE FROM [dbo].[Page Data Personalization]
+DELETE FROM [dbo].[User Default Style Sheet]
+DELETE FROM [dbo].[User Metadata]
+DELETE FROM [dbo].[User Personalization]</textarea>
+                        <button class="btn btn-ghost btn-sm" id="btnResetSql" type="button">Reset to default</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Step 3: Apps -->

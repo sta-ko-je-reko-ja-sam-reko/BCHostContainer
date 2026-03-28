@@ -138,6 +138,8 @@ app.post('/api/containers', (req, res) => {
         licenseFile: req.body.licenseFile || '',
         backupFile: req.body.backupFile || '',
         appFiles: req.body.appFiles || [],
+        cleanupUsers: req.body.cleanupUsers || false,
+        cleanupSql: req.body.cleanupSql || '',
         // State
         status: 'pending',
         url: '',
@@ -533,6 +535,25 @@ New-BCContainer -accept_eula -containerName '${container.name}' -credential $cre
     // Import license after backup restore
     if (container.licenseFile) {
         script += `Import-BCContainerLicense -containerName '${container.name}' -licenseFile '${container.licenseFile}';\n`;
+    }
+
+    // Clean up user tables after backup restore so new credentials work
+    if (container.backupFile && container.cleanupUsers && container.cleanupSql) {
+        const sqlLines = container.cleanupSql.replace(/'/g, "''");
+        script += `Invoke-ScriptInBCContainer -containerName '${container.name}' -scriptblock {\n`;
+        script += `  $sql = @"\n`;
+        script += `${sqlLines}\n`;
+        script += `"@\n`;
+        script += `  $svc = (Get-Service -Name 'MicrosoftDynamicsNavServer*')[0]\n`;
+        script += `  $instance = $svc.Name.Replace('MicrosoftDynamicsNavServer$', '')\n`;
+        script += `  $config = Get-NAVServerConfiguration -ServerInstance $instance\n`;
+        script += `  $dbName = ($config | Where-Object { $_.Key -eq 'DatabaseName' }).Value\n`;
+        script += `  $dbServer = ($config | Where-Object { $_.Key -eq 'DatabaseServer' }).Value\n`;
+        script += `  $dbInstance = ($config | Where-Object { $_.Key -eq 'DatabaseInstance' }).Value\n`;
+        script += `  if ($dbInstance) { $dbServer = "$dbServer\\$dbInstance" }\n`;
+        script += `  Invoke-Sqlcmd -ServerInstance $dbServer -Database $dbName -Query $sql\n`;
+        script += `  Write-Host "User tables cleaned up in database $dbName"\n`;
+        script += `};\n`;
     }
 
     await runPowerShell(script);

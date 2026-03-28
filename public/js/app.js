@@ -8,6 +8,14 @@ let currentContainerId = null;
 let nameCheckTimer = null;
 let nameIsAvailable = false;
 
+const DEFAULT_CLEANUP_SQL = `DELETE FROM [dbo].[User]
+DELETE FROM [dbo].[Access Control]
+DELETE FROM [dbo].[User Property]
+DELETE FROM [dbo].[Page Data Personalization]
+DELETE FROM [dbo].[User Default Style Sheet]
+DELETE FROM [dbo].[User Metadata]
+DELETE FROM [dbo].[User Personalization]`;
+
 // === DOM Ready ===
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboard();
@@ -50,6 +58,20 @@ function bindEvents() {
     setupFileUpload('backupUploadArea', 'backupFile', (files) => {
         selectedBackupFile = files[0];
         document.getElementById('backupFileName').textContent = files[0].name;
+        document.getElementById('cleanupUsersSection').classList.remove('hidden');
+    });
+
+    // SQL preview toggle
+    document.getElementById('btnToggleSqlPreview').addEventListener('click', () => {
+        const preview = document.getElementById('sqlPreview');
+        const btn = document.getElementById('btnToggleSqlPreview');
+        const hidden = preview.classList.toggle('hidden');
+        btn.textContent = hidden ? 'Show SQL' : 'Hide SQL';
+    });
+
+    // Reset SQL to default
+    document.getElementById('btnResetSql').addEventListener('click', () => {
+        document.getElementById('cleanupSql').value = DEFAULT_CLEANUP_SQL;
     });
 
     setupFileUpload('appUploadArea', 'appFiles', (files) => {
@@ -227,6 +249,11 @@ function resetWizard() {
     nameIsAvailable = false;
     document.getElementById('licenseFileName').textContent = '';
     document.getElementById('backupFileName').textContent = '';
+    document.getElementById('cleanupUsersSection').classList.add('hidden');
+    document.getElementById('cleanupUsers').checked = false;
+    document.getElementById('cleanupSql').value = DEFAULT_CLEANUP_SQL;
+    document.getElementById('sqlPreview').classList.add('hidden');
+    document.getElementById('btnToggleSqlPreview').textContent = 'Show SQL';
     document.getElementById('appFileList').innerHTML = '';
     document.getElementById('buildProgress').classList.add('hidden');
     document.getElementById('bcVersionManual').value = '';
@@ -657,6 +684,9 @@ function renderReview() {
     }
     if (selectedBackupFile) {
         rows.push({ label: 'Database Backup', value: selectedBackupFile.name });
+        if (document.getElementById('cleanupUsers').checked) {
+            rows.push({ label: 'Clean Up Users', value: 'Yes — user tables will be cleared after restore' });
+        }
     }
     if (selectedAppFiles.length > 0) {
         rows.push({ label: 'Additional Apps', value: selectedAppFiles.map(f => f.name).join(', ') });
@@ -684,6 +714,8 @@ async function buildContainer() {
         auth: document.getElementById('authType').value,
         username: document.getElementById('adminUser').value,
         password: document.getElementById('adminPass').value,
+        cleanupUsers: document.getElementById('cleanupUsers').checked,
+        cleanupSql: document.getElementById('cleanupUsers').checked ? document.getElementById('cleanupSql').value : '',
     };
 
     if (hosting === 'azure') {
