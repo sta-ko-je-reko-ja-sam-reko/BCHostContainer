@@ -402,6 +402,72 @@ DELETE FROM [dbo].[User Personalization]</textarea>
         </section>
     </main>
 
+    <!-- Import License Modal -->
+    <div id="licenseModal" class="modal-overlay hidden" onclick="closeLicenseModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Import License to <span id="licenseContainerName"></span></h3>
+                <button class="btn-icon" onclick="closeLicenseModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="hint">Upload a license file (.bclicense or .flf) to import into this container.</p>
+                <div class="file-upload-area" id="licenseModalUploadArea">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag &amp; drop license file here or <strong>browse</strong></p>
+                    <input type="file" id="licenseModalFile" accept=".bclicense,.flf" class="file-input-hidden">
+                </div>
+                <div id="licenseModalFileName" class="file-name"></div>
+                <div id="licenseLog" class="build-log hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closeLicenseModal()">Cancel</button>
+                <button class="btn btn-primary" id="btnImportLicense" onclick="importLicense()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Import License
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Publish Apps Modal -->
+    <div id="publishModal" class="modal-overlay hidden" onclick="closePublishModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Publish Apps to <span id="publishContainerName"></span></h3>
+                <button class="btn-icon" onclick="closePublishModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="hint">Upload .app files to publish and install on this running container.</p>
+                <div class="file-upload-area" id="publishAppUploadArea">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag &amp; drop .app files here or <strong>browse</strong></p>
+                    <input type="file" id="publishAppFiles" accept=".app" multiple class="file-input-hidden">
+                </div>
+                <div id="publishAppFileList" class="file-list"></div>
+                <div id="publishLog" class="build-log hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" onclick="closePublishModal()">Cancel</button>
+                <button class="btn btn-primary" id="btnPublishApps" onclick="publishApps()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Publish
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/app.js"></script>
 </body>
 </html>

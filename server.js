@@ -71,6 +71,32 @@ function runPowerShell(script) {
     });
 }
 
+// Like runPowerShell but returns combined stdout+stderr for diagnostics
+function runPowerShellVerbose(script) {
+    return new Promise((resolve, reject) => {
+        const ps = spawn('powershell.exe', [
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-Command', script
+        ]);
+
+        let stdout = '';
+        let stderr = '';
+
+        ps.stdout.on('data', (data) => { stdout += data.toString(); });
+        ps.stderr.on('data', (data) => { stderr += data.toString(); });
+
+        ps.on('close', (code) => {
+            const combined = (stdout + '\n' + stderr).trim();
+            if (code === 0 || stdout.trim()) {
+                resolve(combined);
+            } else {
+                reject(new Error(combined || `PowerShell exited with code ${code}`));
+            }
+        });
+    });
+}
+
 // --- API Routes ---
 
 // Check if container name exists (in Docker or in our records)
@@ -205,6 +231,58 @@ app.post('/api/containers/:id/build', async (req, res) => {
         saveContainers(containers);
         res.status(500).json({ error: err.message, container });
     }
+});
+
+// Import license to an existing container
+app.post('/api/containers/:id/import-license', upload.single('file'), async (req, res) => {
+    const containers = loadContainers();
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) return res.status(404).json({ error: 'Container not found' });
+
+    if (!req.file) {
+        return res.status(400).json({ error: 'No license file uploaded' });
+    }
+
+    try {
+        const script = `Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null; ` +
+            `Import-BCContainerLicense -containerName '${container.name}' -licenseFile '${req.file.path}';`;
+
+        const output = await runPowerShellVerbose(script);
+        container.licenseFile = req.file.path;
+        saveContainers(containers);
+        res.json({ success: true, output });
+    } catch (err) {
+        res.json({ success: false, error: err.message });
+    }
+});
+
+// Publish additional apps to an existing container
+app.post('/api/containers/:id/publish-apps', upload.array('files'), async (req, res) => {
+    const containers = loadContainers();
+    const container = containers.find(c => c.id === req.params.id);
+    if (!container) return res.status(404).json({ error: 'Container not found' });
+
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No app files uploaded' });
+    }
+
+    const results = [];
+    for (const file of req.files) {
+        try {
+            const script = `Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null; ` +
+                `$credential = New-Object pscredential '${container.username}', (ConvertTo-SecureString -String '${container.password}' -AsPlainText -Force); ` +
+                `Publish-BCContainerApp -containerName '${container.name}' -credential $credential -appFile '${file.path}' -install -sync -skipVerification;`;
+
+            const output = await runPowerShellVerbose(script);
+            container.appFiles = [...(container.appFiles || []), file.path];
+            results.push({ file: file.originalname, success: true, output });
+        } catch (err) {
+            results.push({ file: file.originalname, success: false, error: err.message });
+        }
+    }
+
+    saveContainers(containers);
+    res.json({ results, container });
 });
 
 // Container actions: stop, start, restart, remove
