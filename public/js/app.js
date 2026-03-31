@@ -8,6 +8,14 @@ let currentContainerId = null;
 let nameCheckTimer = null;
 let nameIsAvailable = false;
 
+const DEFAULT_CLEANUP_SQL = `DELETE FROM [dbo].[User]
+DELETE FROM [dbo].[Access Control]
+DELETE FROM [dbo].[User Property]
+DELETE FROM [dbo].[Page Data Personalization]
+DELETE FROM [dbo].[User Default Style Sheet]
+DELETE FROM [dbo].[User Metadata]
+DELETE FROM [dbo].[User Personalization]`;
+
 // === DOM Ready ===
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboard();
@@ -50,6 +58,20 @@ function bindEvents() {
     setupFileUpload('backupUploadArea', 'backupFile', (files) => {
         selectedBackupFile = files[0];
         document.getElementById('backupFileName').textContent = files[0].name;
+        document.getElementById('cleanupUsersSection').classList.remove('hidden');
+    });
+
+    // SQL preview toggle
+    document.getElementById('btnToggleSqlPreview').addEventListener('click', () => {
+        const preview = document.getElementById('sqlPreview');
+        const btn = document.getElementById('btnToggleSqlPreview');
+        const hidden = preview.classList.toggle('hidden');
+        btn.textContent = hidden ? 'Show SQL' : 'Hide SQL';
+    });
+
+    // Reset SQL to default
+    document.getElementById('btnResetSql').addEventListener('click', () => {
+        document.getElementById('cleanupSql').value = DEFAULT_CLEANUP_SQL;
     });
 
     setupFileUpload('appUploadArea', 'appFiles', (files) => {
@@ -123,6 +145,19 @@ function renderContainers(containers) {
                         <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
                     </svg>
                 </button>
+                ${c.status === 'running' ? `
+                    <button class="btn-icon" title="Import License" onclick="openLicenseModal('${c.id}', '${esc(c.name)}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                        </svg>
+                    </button>
+                    <button class="btn-icon" title="Publish Apps" onclick="openPublishModal('${c.id}', '${esc(c.name)}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </button>
+                ` : ''}
                 <button class="btn-icon" title="Remove" onclick="containerAction('${c.id}', 'remove')" style="margin-left:auto;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2">
                         <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -227,6 +262,11 @@ function resetWizard() {
     nameIsAvailable = false;
     document.getElementById('licenseFileName').textContent = '';
     document.getElementById('backupFileName').textContent = '';
+    document.getElementById('cleanupUsersSection').classList.add('hidden');
+    document.getElementById('cleanupUsers').checked = false;
+    document.getElementById('cleanupSql').value = DEFAULT_CLEANUP_SQL;
+    document.getElementById('sqlPreview').classList.add('hidden');
+    document.getElementById('btnToggleSqlPreview').textContent = 'Show SQL';
     document.getElementById('appFileList').innerHTML = '';
     document.getElementById('buildProgress').classList.add('hidden');
     document.getElementById('bcVersionManual').value = '';
@@ -657,6 +697,9 @@ function renderReview() {
     }
     if (selectedBackupFile) {
         rows.push({ label: 'Database Backup', value: selectedBackupFile.name });
+        if (document.getElementById('cleanupUsers').checked) {
+            rows.push({ label: 'Clean Up Users', value: 'Yes — user tables will be cleared after restore' });
+        }
     }
     if (selectedAppFiles.length > 0) {
         rows.push({ label: 'Additional Apps', value: selectedAppFiles.map(f => f.name).join(', ') });
@@ -684,6 +727,8 @@ async function buildContainer() {
         auth: document.getElementById('authType').value,
         username: document.getElementById('adminUser').value,
         password: document.getElementById('adminPass').value,
+        cleanupUsers: document.getElementById('cleanupUsers').checked,
+        cleanupSql: document.getElementById('cleanupUsers').checked ? document.getElementById('cleanupSql').value : '',
     };
 
     if (hosting === 'azure') {
@@ -784,4 +829,239 @@ function formatSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// === Import License Modal ===
+let licenseContainerId = null;
+let licenseModalFile = null;
+
+function openLicenseModal(id, name) {
+    licenseContainerId = id;
+    licenseModalFile = null;
+    document.getElementById('licenseContainerName').textContent = name;
+    document.getElementById('licenseModalFileName').textContent = '';
+    document.getElementById('licenseLog').classList.add('hidden');
+    document.getElementById('licenseLog').innerHTML = '';
+    document.getElementById('btnImportLicense').disabled = false;
+    document.getElementById('btnImportLicense').innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        Import License`;
+    document.getElementById('licenseModal').classList.remove('hidden');
+
+    const area = document.getElementById('licenseModalUploadArea');
+    const input = document.getElementById('licenseModalFile');
+
+    const newInput = input.cloneNode(true);
+    input.parentNode.replaceChild(newInput, input);
+    const newArea = area.cloneNode(true);
+    area.parentNode.replaceChild(newArea, area);
+
+    newArea.addEventListener('dragover', (e) => { e.preventDefault(); newArea.classList.add('drag-over'); });
+    newArea.addEventListener('dragleave', () => { newArea.classList.remove('drag-over'); });
+    newArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        newArea.classList.remove('drag-over');
+        if (e.dataTransfer.files.length) {
+            licenseModalFile = e.dataTransfer.files[0];
+            document.getElementById('licenseModalFileName').textContent = licenseModalFile.name;
+        }
+    });
+
+    const fileInput = newArea.querySelector('#licenseModalFile');
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) {
+            licenseModalFile = fileInput.files[0];
+            document.getElementById('licenseModalFileName').textContent = licenseModalFile.name;
+        }
+    });
+}
+
+function closeLicenseModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('licenseModal').classList.add('hidden');
+    licenseContainerId = null;
+    licenseModalFile = null;
+}
+
+async function importLicense() {
+    if (!licenseModalFile) {
+        alert('Please select a license file.');
+        return;
+    }
+
+    const btn = document.getElementById('btnImportLicense');
+    btn.disabled = true;
+    btn.textContent = 'Importing...';
+
+    const log = document.getElementById('licenseLog');
+    log.classList.remove('hidden');
+    log.innerHTML = '<div class="log-line">Uploading and importing license...</div>';
+
+    const formData = new FormData();
+    formData.append('file', licenseModalFile);
+
+    try {
+        const res = await fetch(`/api/containers/${licenseContainerId}/import-license`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            log.innerHTML += '<div class="log-line log-success">License imported successfully!</div>';
+            if (data.output) log.innerHTML += `<div class="log-line" style="white-space:pre-wrap;font-size:11px;">${esc(data.output)}</div>`;
+            btn.textContent = 'Close';
+            btn.disabled = false;
+            btn.onclick = () => { closeLicenseModal(); loadDashboard(); };
+        } else {
+            log.innerHTML += `<div class="log-line log-error">Failed: ${esc(data.error)}</div>`;
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+        }
+    } catch (err) {
+        log.innerHTML += `<div class="log-line log-error">Error: ${esc(err.message)}</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+    }
+}
+
+// === Publish Apps Modal ===
+let publishContainerId = null;
+let publishAppFiles = [];
+
+function openPublishModal(id, name) {
+    publishContainerId = id;
+    publishAppFiles = [];
+    document.getElementById('publishContainerName').textContent = name;
+    document.getElementById('publishAppFileList').innerHTML = '';
+    document.getElementById('publishLog').classList.add('hidden');
+    document.getElementById('publishLog').innerHTML = '';
+    document.getElementById('btnPublishApps').disabled = false;
+    document.getElementById('btnPublishApps').innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        Publish`;
+    document.getElementById('publishModal').classList.remove('hidden');
+
+    // Set up file upload for the modal
+    const area = document.getElementById('publishAppUploadArea');
+    const input = document.getElementById('publishAppFiles');
+
+    // Remove old listeners by replacing elements
+    const newInput = input.cloneNode(true);
+    input.parentNode.replaceChild(newInput, input);
+
+    const newArea = area.cloneNode(true);
+    // Preserve the new input inside the new area
+    area.parentNode.replaceChild(newArea, area);
+
+    newArea.addEventListener('dragover', (e) => { e.preventDefault(); newArea.classList.add('drag-over'); });
+    newArea.addEventListener('dragleave', () => { newArea.classList.remove('drag-over'); });
+    newArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        newArea.classList.remove('drag-over');
+        if (e.dataTransfer.files.length) addPublishFiles(e.dataTransfer.files);
+    });
+
+    const fileInput = newArea.querySelector('#publishAppFiles');
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) addPublishFiles(fileInput.files);
+    });
+}
+
+function addPublishFiles(files) {
+    publishAppFiles = [...publishAppFiles, ...Array.from(files)];
+    renderPublishFileList();
+}
+
+function renderPublishFileList() {
+    const list = document.getElementById('publishAppFileList');
+    list.innerHTML = publishAppFiles.map((f, i) => `
+        <div class="file-item">
+            <span class="file-item-name">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                    <polyline points="13 2 13 9 20 9"/>
+                </svg>
+                ${esc(f.name)} <small style="color:var(--text-dim)">(${formatSize(f.size)})</small>
+            </span>
+            <button onclick="removePublishFile(${i})">&times;</button>
+        </div>
+    `).join('');
+}
+
+function removePublishFile(index) {
+    publishAppFiles.splice(index, 1);
+    renderPublishFileList();
+}
+
+function closePublishModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('publishModal').classList.add('hidden');
+    publishContainerId = null;
+    publishAppFiles = [];
+}
+
+async function publishApps() {
+    if (publishAppFiles.length === 0) {
+        alert('Please select at least one .app file.');
+        return;
+    }
+
+    const btn = document.getElementById('btnPublishApps');
+    btn.disabled = true;
+    btn.textContent = 'Publishing...';
+
+    const log = document.getElementById('publishLog');
+    log.classList.remove('hidden');
+    log.innerHTML = '<div class="log-line">Uploading and publishing apps...</div>';
+
+    const formData = new FormData();
+    for (const f of publishAppFiles) {
+        formData.append('files', f);
+    }
+
+    try {
+        const res = await fetch(`/api/containers/${publishContainerId}/publish-apps`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            log.innerHTML += `<div class="log-line log-error">Error: ${esc(data.error)}</div>`;
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+            return;
+        }
+
+        for (const r of data.results) {
+            if (r.success) {
+                log.innerHTML += `<div class="log-line log-success">${esc(r.file)} — published successfully</div>`;
+                if (r.output) log.innerHTML += `<div class="log-line" style="white-space:pre-wrap;font-size:11px;">${esc(r.output)}</div>`;
+            } else {
+                log.innerHTML += `<div class="log-line log-error">${esc(r.file)} — failed: ${esc(r.error)}</div>`;
+            }
+        }
+
+        const allOk = data.results.every(r => r.success);
+        if (allOk) {
+            log.innerHTML += '<div class="log-line log-success">All apps published!</div>';
+            btn.textContent = 'Close';
+            btn.disabled = false;
+            btn.onclick = () => { closePublishModal(); loadDashboard(); };
+        } else {
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+        }
+    } catch (err) {
+        log.innerHTML += `<div class="log-line log-error">Error: ${esc(err.message)}</div>`;
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+    }
 }

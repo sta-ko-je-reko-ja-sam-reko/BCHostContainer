@@ -51,6 +51,26 @@ Select a **country** and **BC version**. Click **Load Versions** to fetch availa
 
 Optionally upload a **database backup** (`.bak`) to restore into the container.
 
+#### Clean Up User Tables
+
+When you upload a backup file, a **"Clean up user tables after restore"** checkbox appears. Enable this if your backup contains existing users that would prevent you from logging in with the new credentials.
+
+When checked, the following SQL runs inside the container after the backup is restored:
+
+```sql
+DELETE FROM [dbo].[User]
+DELETE FROM [dbo].[Access Control]
+DELETE FROM [dbo].[User Property]
+DELETE FROM [dbo].[Page Data Personalization]
+DELETE FROM [dbo].[User Default Style Sheet]
+DELETE FROM [dbo].[User Metadata]
+DELETE FROM [dbo].[User Personalization]
+```
+
+Click **"Show SQL"** to see and **edit** the script before building. You can add, remove, or modify statements to fit your database. Click **"Reset to default"** to restore the original script.
+
+> This is commonly needed when restoring a production or customer database into a fresh container — the existing user records conflict with the container's admin user.
+
 ### Step 3 - Additional Apps
 
 Upload `.app` files to publish on the container after creation. Examples:
@@ -70,6 +90,7 @@ Review your configuration and click **Build Container**. The build log shows pro
 3. BC container provisioned via PowerShell (this takes several minutes)
 4. Apps published and installed
 5. License imported
+6. User tables cleaned up (if enabled)
 
 Once complete, you're redirected to the dashboard.
 
