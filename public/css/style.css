@@ -682,9 +682,11 @@ main {
     padding: 12px;
     font-family: 'Cascadia Code', 'Fira Code', monospace;
     font-size: 12px;
-    max-height: 200px;
+    max-height: 400px;
     overflow-y: auto;
     color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .build-log .log-line {
