@@ -119,7 +119,7 @@ app.get('/api/containers/check-name/:name', async (req, res) => {
             const result = await runPowerShell(
                 `docker inspect --format='{{.State.Status}}' '${name}' 2>$null`
             );
-            if (result && !result.includes('Error')) {
+            if (result && !result.includes('Error') && !result.includes('No such')) {
                 exists = true;
                 source = `Docker container found (status: ${result.trim()})`;
             }
@@ -403,6 +403,18 @@ app.get('/api/prerequisites', async (req, res) => {
         checks.docker = svcResult.includes('Running');
     } catch { checks.docker = false; }
 
+    // Check Docker version (minimum 24.0 required for ltsc2025 images)
+    checks.dockerVersion = '';
+    checks.dockerVersionOk = false;
+    if (checks.docker) {
+        try {
+            const verResult = await runPowerShell("(docker version --format '{{.Server.Version}}') 2>$null");
+            checks.dockerVersion = verResult.trim();
+            const major = parseInt(checks.dockerVersion.split('.')[0], 10);
+            checks.dockerVersionOk = major >= 24;
+        } catch { /* version check failed */ }
+    }
+
     try {
         await runPowerShell('Get-Module -ListAvailable BCContainerHelper | Select-Object -First 1');
         checks.bcContainerHelper = true;
@@ -592,7 +604,7 @@ async function buildLocalContainer(container) {
 Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null;
 $artifactUrl = Get-BCArtifactUrl -type ${bcType} -country ${container.country} -version ${container.bcVersion} -select Closest;
 $credential = New-Object pscredential '${container.username}', (ConvertTo-SecureString -String '${container.password}' -AsPlainText -Force);
-New-BCContainer -accept_eula -containerName '${container.name}' -credential $credential -auth ${container.auth} -artifactUrl $artifactUrl -assignPremiumPlan -shortcuts DesktopFolder -updateHosts`;
+New-BCContainer -accept_eula -containerName '${container.name}' -credential $credential -auth ${container.auth} -artifactUrl $artifactUrl -assignPremiumPlan -shortcuts DesktopFolder -updateHosts -isolation hyperv`;
 
     if (container.licenseFile) {
         script += ` -licenseFile '${container.licenseFile}'`;
@@ -634,10 +646,40 @@ New-BCContainer -accept_eula -containerName '${container.name}' -credential $cre
         script += `};\n`;
     }
 
-    await runPowerShell(script);
+    const buildOutput = await runPowerShellVerbose(script);
+
+    // Log build output for debugging
+    container.logs.push({ time: new Date().toISOString(), message: buildOutput });
+
+    // Verify the container actually exists in Docker
+    const cName = container.name;
+    try {
+        const status = await runPowerShell("docker inspect --format='{{.State.Status}}' '" + cName + "'");
+        if (!status || status.includes('Error') || status.includes('No such')) {
+            throw new Error('Container was not created. Check build logs for details.');
+        }
+    } catch (e) {
+        throw new Error('Container was not created. Build output:\n' + buildOutput.slice(-500));
+    }
+
+    // Ensure hosts file has the container entry (fallback in case -updateHosts didn't work)
+    const updateHostsScript =
+        "$ip = docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '" + cName + "' 2>$null;\n" +
+        "if ($ip) {\n" +
+        "    $hostsPath = 'C:\\Windows\\System32\\drivers\\etc\\hosts';\n" +
+        "    $content = Get-Content $hostsPath -Raw;\n" +
+        "    $pattern = '\\s+" + cName + "\\s*$';\n" +
+        "    if ($content -notmatch $pattern) {\n" +
+        "        Add-Content -Path $hostsPath -Value \"$ip`t" + cName + "\";\n" +
+        "        Write-Host \"Added $ip " + cName + " to hosts file\";\n" +
+        "    }\n" +
+        "}";
+    try { await runPowerShell(updateHostsScript); } catch (e) { /* best effort */ }
 
     // -updateHosts adds the container name to hosts file, so use it directly
-    container.url = `http://${container.name}/BC`;
+    // Sandbox (SaaS) containers are multitenant and need ?tenant=default
+    const tenantParam = container.bcType === 'saas' ? '?tenant=default' : '';
+    container.url = `http://${container.name}/BC/${tenantParam}`;
 }
 
 async function buildAzureContainer(container) {
@@ -673,6 +715,19 @@ async function localContainerAction(container, action) {
         remove: `Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null; Remove-BCContainer -containerName '${container.name}'`
     };
     await runPowerShell(commands[action]);
+
+    // After remove, ensure Docker container is gone and clean up hosts file
+    if (action === 'remove') {
+        try { await runPowerShell("docker rm -f '" + container.name + "' 2>$null"); } catch (e) { /* already gone */ }
+        try {
+            await runPowerShell(
+                "$hostsPath = 'C:\\Windows\\System32\\drivers\\etc\\hosts';" +
+                "$lines = Get-Content $hostsPath;" +
+                "$filtered = $lines | Where-Object { $_ -notmatch '\\s+" + container.name + "\\s*$' };" +
+                "Set-Content -Path $hostsPath -Value $filtered;"
+            );
+        } catch (e) { /* best effort */ }
+    }
 }
 
 async function azureContainerAction(container, action) {

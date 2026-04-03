@@ -301,6 +301,13 @@ function nextStep() {
     if (currentStep < totalSteps) {
         currentStep++;
         updateWizardUI();
+        // Auto-load versions when entering step 2 if not already loaded
+        if (currentStep === 2) {
+            const select = document.getElementById('bcVersion');
+            if (select.options.length <= 1) {
+                loadVersions();
+            }
+        }
     }
 }
 
@@ -409,7 +416,7 @@ let lastLocalChecks = {};
 let lastAzureChecks = {};
 
 async function checkPrerequisites() {
-    const items = ['prereqDocker', 'prereqHyperV', 'prereqBCHelper'];
+    const items = ['prereqDocker', 'prereqDockerVersion', 'prereqHyperV', 'prereqBCHelper'];
     items.forEach(id => {
         const icon = document.querySelector(`#${id} .prereq-icon`);
         icon.className = 'prereq-icon loading';
@@ -423,11 +430,19 @@ async function checkPrerequisites() {
         lastLocalChecks = checks;
 
         setPrereqStatus('prereqDocker', checks.docker, 'docker');
+        setPrereqStatus('prereqDockerVersion', checks.dockerVersionOk, 'docker');
+        // Show version info
+        const verInfo = document.getElementById('dockerVersionInfo');
+        if (checks.dockerVersion) {
+            verInfo.textContent = checks.dockerVersionOk
+                ? `Version ${checks.dockerVersion} - OK`
+                : `Version ${checks.dockerVersion} - too old, minimum v24.0 required`;
+        }
         setPrereqStatus('prereqHyperV', checks.hyperV, 'hyperv');
         setPrereqStatus('prereqBCHelper', checks.bcContainerHelper, 'bcContainerHelper');
 
         // Show "Install All" if anything is missing
-        const anyMissing = !checks.docker || !checks.hyperV || !checks.bcContainerHelper;
+        const anyMissing = !checks.docker || !checks.dockerVersionOk || !checks.hyperV || !checks.bcContainerHelper;
         document.getElementById('btnInstallAllLocal').classList.toggle('hidden', !anyMissing);
     } catch {
         items.forEach(id => setPrereqStatus(id, false));
@@ -591,7 +606,7 @@ async function loadVersions() {
         const res = await fetch(`/api/bc-versions?type=${bcType === 'saas' ? 'Sandbox' : 'OnPrem'}&country=${country}`);
         const versions = await res.json();
 
-        select.innerHTML = '<option value="">-- Select version --</option>';
+        select.innerHTML = '';
         versions.forEach(v => {
             const opt = document.createElement('option');
             opt.value = v;
@@ -599,13 +614,9 @@ async function loadVersions() {
             select.appendChild(opt);
         });
 
-        // Auto-select first version and open dropdown
+        // Select first version directly — no placeholder needed
         if (versions.length > 0) {
-            select.value = versions[0];
-            select.focus();
-            select.size = Math.min(versions.length + 1, 10);
-            select.addEventListener('change', () => { select.size = 1; }, { once: true });
-            select.addEventListener('blur', () => { select.size = 1; }, { once: true });
+            select.selectedIndex = 0;
         }
     } catch (err) {
         alert('Failed to load versions. Make sure BCContainerHelper is installed.');
