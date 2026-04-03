@@ -122,6 +122,14 @@
                             </div>
                             <button class="btn btn-ghost btn-sm prereq-install hidden" onclick="installSingle('docker')">Install</button>
                         </div>
+                        <div class="prereq-item" id="prereqDockerVersion">
+                            <span class="prereq-icon loading"></span>
+                            <div class="prereq-info">
+                                <strong>Docker Version</strong>
+                                <small id="dockerVersionInfo">Minimum v24.0 required for modern BC images</small>
+                            </div>
+                            <button class="btn btn-ghost btn-sm prereq-install hidden" onclick="installSingle('docker')">Update</button>
+                        </div>
                         <div class="prereq-item" id="prereqHyperV">
                             <span class="prereq-icon loading"></span>
                             <div class="prereq-info">
@@ -231,7 +239,8 @@
                     </div>
                     <div class="form-group">
                         <label>Password</label>
-                        <input type="text" id="adminPass" value="admin">
+                        <input type="text" id="adminPass" value="Admin123!">
+                        <small class="hint" style="color: var(--text-muted); margin-top: 4px; display: block;">SaaS (Sandbox) requires a strong password: min 8 chars, uppercase, lowercase, and a number.</small>
                     </div>
                 </div>
             </div>
