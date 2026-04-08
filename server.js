@@ -5,6 +5,9 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 
+// Escape single quotes for PowerShell single-quoted strings
+const psEscape = (str) => String(str).replace(/'/g, "''");
+
 const app = express();
 const PORT = 3000;
 
@@ -245,7 +248,7 @@ app.post('/api/containers/:id/import-license', upload.single('file'), async (req
 
     try {
         const script = `Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null; ` +
-            `Import-BCContainerLicense -containerName '${container.name}' -licenseFile '${req.file.path}';`;
+            `Import-BCContainerLicense -containerName '${psEscape(container.name)}' -licenseFile '${psEscape(req.file.path)}';`;
 
         const output = await runPowerShellVerbose(script);
         container.licenseFile = req.file.path;
@@ -266,23 +269,70 @@ app.post('/api/containers/:id/publish-apps', upload.array('files'), async (req, 
         return res.status(400).json({ error: 'No app files uploaded' });
     }
 
-    const results = [];
+    // Publish apps one by one in dependency order, in a single PowerShell session
+    const appPaths = req.files.map(f => f.path);
+    const appList = appPaths.map(f => `'${psEscape(f)}'`).join(', ');
+    const fileMap = {};
     for (const file of req.files) {
-        try {
-            const script = `Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null; ` +
-                `$credential = New-Object pscredential '${container.username}', (ConvertTo-SecureString -String '${container.password}' -AsPlainText -Force); ` +
-                `Publish-BCContainerApp -containerName '${container.name}' -credential $credential -appFile '${file.path}' -install -sync -skipVerification;`;
-
-            const output = await runPowerShellVerbose(script);
-            container.appFiles = [...(container.appFiles || []), file.path];
-            results.push({ file: file.originalname, success: true, output });
-        } catch (err) {
-            results.push({ file: file.originalname, success: false, error: err.message });
-        }
+        fileMap[file.originalname] = file.path;
     }
 
-    saveContainers(containers);
-    res.json({ results, container });
+    let script = `Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null;\n`;
+    script += `$credential = New-Object pscredential '${psEscape(container.username)}', (ConvertTo-SecureString -String '${psEscape(container.password)}' -AsPlainText -Force);\n`;
+    script += `$appFiles = @(${appList});\n`;
+    script += `$sortedApps = Sort-AppFilesByDependencies -appFiles $appFiles -WarningAction SilentlyContinue;\n`;
+
+    // Publish each app: copy into container and publish directly (avoids server-side compilation)
+    script += 'foreach ($app in $sortedApps) {\n';
+    script += '  $appName = [System.IO.Path]::GetFileName($app);\n';
+    script += '  try {\n';
+    script += `    Copy-FileToBcContainer -containerName '${psEscape(container.name)}' -localPath $app -containerPath "c:\\\\run\\\\my\\\\$appName";\n`;
+    script += `    Invoke-ScriptInBcContainer -containerName '${psEscape(container.name)}' -scriptblock { Param($appPath)\n`;
+    script += '      $svc = (Get-Service -Name "MicrosoftDynamicsNavServer*")[0];\n';
+    script += '      $instance = $svc.Name.Replace("MicrosoftDynamicsNavServer$", "");\n';
+    script += '      Publish-NAVApp -ServerInstance $instance -Path $appPath -SkipVerification;\n';
+    script += '      $appInfo = Get-NAVAppInfo -ServerInstance $instance -Path $appPath;\n';
+    script += '      Sync-NAVApp -ServerInstance $instance -Name $appInfo.Name -Version $appInfo.Version;\n';
+    script += '      Install-NAVApp -ServerInstance $instance -Name $appInfo.Name -Version $appInfo.Version;\n';
+    script += '    } -argumentList "c:\\run\\my\\$appName";\n';
+    script += '    Write-Host "APP_RESULT|$appName|OK|";\n';
+    script += '  } catch {\n';
+    script += '    $err = $_.Exception.Message -replace "[\\r\\n]+", " ";\n';
+    script += '    Write-Host "APP_RESULT|$appName|FAIL|$err";\n';
+    script += '  }\n';
+    script += '}\n';
+
+    try {
+        const output = await runPowerShellVerbose(script);
+
+        // Parse APP_RESULT lines from output
+        const results = [];
+        const resultLines = output.split(/\r?\n/).filter(l => l.startsWith('APP_RESULT|'));
+
+        for (const file of req.files) {
+            const name = file.originalname;
+            const line = resultLines.find(l => l.includes(`|${name}|`));
+            if (line) {
+                const parts = line.split('|');
+                const status = parts[2];
+                const errMsg = parts.slice(3).join('|');
+                if (status === 'OK') {
+                    container.appFiles = [...(container.appFiles || []), file.path];
+                    results.push({ file: name, success: true });
+                } else {
+                    results.push({ file: name, success: false, error: errMsg || 'Compilation or install failed' });
+                }
+            } else {
+                results.push({ file: name, success: false, error: 'No result received — check server logs' });
+            }
+        }
+
+        saveContainers(containers);
+        res.json({ results, container });
+    } catch (err) {
+        saveContainers(containers);
+        res.status(500).json({ error: err.message, container });
+    }
 });
 
 // Container actions: stop, start, restart, remove
@@ -601,36 +651,43 @@ async function buildLocalContainer(container) {
     const bcType = container.bcType === 'saas' ? 'Sandbox' : 'OnPrem';
 
     let script = `
+$ErrorActionPreference = 'Stop';
 Import-Module BCContainerHelper -Force -WarningAction SilentlyContinue 3>$null;
 $artifactUrl = Get-BCArtifactUrl -type ${bcType} -country ${container.country} -version ${container.bcVersion} -select Closest;
-$credential = New-Object pscredential '${container.username}', (ConvertTo-SecureString -String '${container.password}' -AsPlainText -Force);
-New-BCContainer -accept_eula -containerName '${container.name}' -credential $credential -auth ${container.auth} -artifactUrl $artifactUrl -assignPremiumPlan -shortcuts DesktopFolder -updateHosts -isolation hyperv`;
+if (-not $artifactUrl) { throw "No artifact found for type=${bcType}, country=${container.country}, version=${container.bcVersion}. Check that this version is available for your country." }
+Write-Host "Resolved artifact URL: $artifactUrl";
+$credential = New-Object pscredential '${psEscape(container.username)}', (ConvertTo-SecureString -String '${psEscape(container.password)}' -AsPlainText -Force);
+New-BCContainer -accept_eula -containerName '${psEscape(container.name)}' -credential $credential -auth ${container.auth} -artifactUrl $artifactUrl -assignPremiumPlan -shortcuts DesktopFolder -updateHosts -isolation process -accept_outdated -includeAL -enableTaskScheduler`;
 
     if (container.licenseFile) {
-        script += ` -licenseFile '${container.licenseFile}'`;
+        script += ` -licenseFile '${psEscape(container.licenseFile)}'`;
     }
     if (container.backupFile) {
-        script += ` -bakfile '${container.backupFile}'`;
+        script += ` -bakfile '${psEscape(container.backupFile)}'`;
     }
 
     script += ';\n';
 
-    // Publish additional apps
-    if (container.appFiles && container.appFiles.length > 0) {
-        for (const appFile of container.appFiles) {
-            script += `Publish-NewApplicationToBcContainer -containerName '${container.name}' -credential $credential -appFile '${appFile}' -doNotUseDevEndpoint;\n`;
-        }
+    // Import license before publishing apps (partner/ISV apps require a valid license)
+    if (container.licenseFile) {
+        script += `Import-BCContainerLicense -containerName '${psEscape(container.name)}' -licenseFile '${psEscape(container.licenseFile)}';\n`;
     }
 
-    // Import license after backup restore
-    if (container.licenseFile) {
-        script += `Import-BCContainerLicense -containerName '${container.name}' -licenseFile '${container.licenseFile}';\n`;
+    // Publish additional apps (sorted by dependency order)
+    if (container.appFiles && container.appFiles.length > 0) {
+        const appList = container.appFiles.map(f => `'${psEscape(f)}'`).join(', ');
+        script += `$appFiles = @(${appList});\n`;
+        script += `$sortedApps = Sort-AppFilesByDependencies -appFiles $appFiles -WarningAction SilentlyContinue;\n`;
+        script += 'foreach ($app in $sortedApps) {\n';
+        script += '  Write-Host "Publishing $app ...";\n';
+        script += `  Publish-BcContainerApp -containerName '${psEscape(container.name)}' -appFile $app -sync -install -skipVerification;\n`;
+        script += '}\n';
     }
 
     // Clean up user tables after backup restore so new credentials work
     if (container.backupFile && container.cleanupUsers && container.cleanupSql) {
         const sqlLines = container.cleanupSql.replace(/'/g, "''");
-        script += `Invoke-ScriptInBCContainer -containerName '${container.name}' -scriptblock {\n`;
+        script += `Invoke-ScriptInBCContainer -containerName '${psEscape(container.name)}' -scriptblock {\n`;
         script += `  $sql = @"\n`;
         script += `${sqlLines}\n`;
         script += `"@\n`;
@@ -685,9 +742,9 @@ New-BCContainer -accept_eula -containerName '${container.name}' -credential $cre
 async function buildAzureContainer(container) {
     let script = `
 Import-Module BCContainerHelper -Force;
-$credential = New-Object pscredential '${container.username}', (ConvertTo-SecureString -String '${container.password}' -AsPlainText -Force);
+$credential = New-Object pscredential '${psEscape(container.username)}', (ConvertTo-SecureString -String '${psEscape(container.password)}' -AsPlainText -Force);
 New-BCContainer -accept_eula `
-        + `-containerName '${container.name}' `
+        + `-containerName '${psEscape(container.name)}' `
         + `-credential $credential `
         + `-auth ${container.auth} `
         + `-artifactUrl (Get-BCArtifactUrl -type ${container.bcType === 'saas' ? 'Sandbox' : 'OnPrem'} -country ${container.country} -version ${container.bcVersion} -select Closest) `
