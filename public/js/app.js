@@ -39,6 +39,11 @@ function bindEvents() {
     });
 
     // BC type toggle
+    document.getElementById('bcCountry').addEventListener('change', () => {
+        clearVersionDropdown();
+        if (currentStep === 2) loadVersions();
+    });
+
     document.querySelectorAll('input[name="bcType"]').forEach(r => {
         r.addEventListener('change', onBcTypeChange);
     });
@@ -301,12 +306,9 @@ function nextStep() {
     if (currentStep < totalSteps) {
         currentStep++;
         updateWizardUI();
-        // Auto-load versions when entering step 2 if not already loaded
+        // Load versions when entering step 2 for the selected country/type
         if (currentStep === 2) {
-            const select = document.getElementById('bcVersion');
-            if (select.options.length <= 1) {
-                loadVersions();
-            }
+            loadVersions();
         }
     }
 }
@@ -407,8 +409,15 @@ function onHostingChange() {
 // === BC Type change ===
 function onBcTypeChange() {
     const isOnPrem = document.querySelector('input[name="bcType"]:checked').value === 'onprem';
-    document.getElementById('licenseSection').style.display = isOnPrem ? '' : 'none';
+    document.getElementById('licenseSection').style.display = '';
     document.getElementById('saasAppWarning').style.display = isOnPrem ? 'none' : '';
+    clearVersionDropdown();
+    if (currentStep === 2) loadVersions();
+}
+
+function clearVersionDropdown() {
+    const select = document.getElementById('bcVersion');
+    select.innerHTML = '<option value="">-- Select or type version --</option>';
 }
 
 // === Prerequisites ===
@@ -604,9 +613,24 @@ async function loadVersions() {
 
     try {
         const res = await fetch(`/api/bc-versions?type=${bcType === 'saas' ? 'Sandbox' : 'OnPrem'}&country=${country}`);
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            const isNotFound = errData.error && errData.error.includes('404');
+            clearVersionDropdown();
+            if (isNotFound) {
+                select.innerHTML = '<option value="">No artifacts for this country — try W1</option>';
+            } else {
+                select.innerHTML = '<option value="">Failed to load versions</option>';
+            }
+            return;
+        }
         const versions = await res.json();
 
         select.innerHTML = '';
+        if (versions.length === 0) {
+            select.innerHTML = '<option value="">No versions found for this country/type</option>';
+            return;
+        }
         versions.forEach(v => {
             const opt = document.createElement('option');
             opt.value = v;
@@ -614,12 +638,10 @@ async function loadVersions() {
             select.appendChild(opt);
         });
 
-        // Select first version directly — no placeholder needed
-        if (versions.length > 0) {
-            select.selectedIndex = 0;
-        }
+        select.selectedIndex = 0;
     } catch (err) {
-        alert('Failed to load versions. Make sure BCContainerHelper is installed.');
+        clearVersionDropdown();
+        select.innerHTML = '<option value="">Failed to load versions</option>';
     } finally {
         btn.textContent = 'Load Versions';
         btn.disabled = false;
