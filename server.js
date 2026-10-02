@@ -355,12 +355,10 @@ app.post('/api/containers/:id/:action', async (req, res) => {
                 const result = await runPowerShell(
                     `docker inspect --format='{{.State.Status}}' '${container.name}' 2>$null`
                 );
-                if (result.includes('running')) container.status = 'running';
-                else if (result.includes('exited')) container.status = 'stopped';
-                else container.status = 'unknown';
+                container.status = statusFromDocker(container, result);
 
                 // Ensure URL uses container name
-                container.url = `http://${container.name}/BC`;
+                container.url = webClientUrl(container);
             }
             saveContainers(containers);
             return res.json(container);
@@ -387,7 +385,7 @@ app.post('/api/containers/:id/:action', async (req, res) => {
             containers.splice(idx, 1);
         } else if (action === 'stop') {
             container.status = 'stopped';
-        } else if (action === 'start' || action === 'restart') {
+        } else if ((action === 'start' || action === 'restart') && container.status !== 'error') {
             container.status = 'running';
         }
 
@@ -411,9 +409,7 @@ app.post('/api/containers/:id/refresh', async (req, res) => {
             const result = await runPowerShell(
                 `docker inspect --format='{{.State.Status}}' '${container.name}' 2>$null`
             );
-            if (result.includes('running')) container.status = 'running';
-            else if (result.includes('exited')) container.status = 'stopped';
-            else container.status = 'unknown';
+            container.status = statusFromDocker(container, result);
         }
         saveContainers(containers);
         res.json(container);
@@ -734,9 +730,22 @@ New-BCContainer -accept_eula -containerName '${psEscape(container.name)}' -crede
     try { await runPowerShell(updateHostsScript); } catch (e) { /* best effort */ }
 
     // -updateHosts adds the container name to hosts file, so use it directly
+    container.url = webClientUrl(container);
+}
+
+function webClientUrl(container) {
     // Sandbox (SaaS) containers are multitenant and need ?tenant=default
     const tenantParam = container.bcType === 'saas' ? '?tenant=default' : '';
-    container.url = `http://${container.name}/BC/${tenantParam}`;
+    return `http://${container.name}/BC/${tenantParam}`;
+}
+
+// A failed build leaves the container running without BC, so Docker's
+// "running" must not overwrite the error status.
+function statusFromDocker(container, dockerState) {
+    if (container.status === 'error' && dockerState) return 'error';
+    if (dockerState.includes('running')) return 'running';
+    if (dockerState.includes('exited')) return 'stopped';
+    return 'unknown';
 }
 
 async function buildAzureContainer(container) {
